@@ -1,0 +1,273 @@
+#!/bin/env python3
+#
+# Implements a command line todo manager.
+#
+# Store your todo list and displays it in multiple ways depending on urgency, importance, date, etc.
+#
+# Overall structure
+#  List:
+#    - Items
+#      + Tags
+#      + Description
+#      + Date added
+#      + Completed
+#      + Priority
+#      + Urgency
+#      + Deadline
+
+import argparse
+import pathlib
+import json
+import time
+import os
+
+
+## Global Configuration Variables
+USER_FILE = "$HOME/.todo"
+
+## Utility Functions
+def JsonGet(data, name, default=None) :
+  if name in data :
+    return data[name]
+  elif default == None :
+    raise ValueError("Expected key ({0}) not found in json: {1}".format(name, data))
+  else:
+    return default
+
+
+class ActionConcatenate(argparse.Action):
+  def __init__(self, option_strings, dest, **kwargs):
+    super().__init__(option_strings, dest, **kwargs)
+
+  def __call__(self, parser, namespace, values, option_string=None):
+    if len(values) > 0:
+      string = values[0]
+      for val in values[1:]:
+        string = "{0} {1}".format(string, val)
+    print("STRING = {0} -- {1} {2}".format(string, values, option_string))
+    setattr(namespace, self.dest, string)
+
+
+class Item:
+  def __init__(self, name, desc="", tags=[], date=time.gmtime(), comp=False, prio=5, urg=5, deadline=None):
+    self.name = name
+    self.description = desc
+    self.tags = tags
+    self.date = date
+    self.completed = comp
+    self.priority = prio
+    self.urgency = urg
+#    self.deadline = deadline
+
+
+  def print_brief(self):
+    tag_string = ""
+    if len(self.tags) > 0:
+      tag_string += "["
+      for num, t in enumerate(self.tags):
+        tag_string += format(t)
+        if num < len(self.tags):
+            tag_string += ", "
+      tag_string += "]"
+
+    return "{0} {1}".format(self.name, tag_string)
+
+  def __fromJson(args):
+    name = JsonGet(args, "name") 
+    desc = JsonGet(args, "description", "")
+    tags = JsonGet(args, "tags", [])
+    date = time.localtime(JsonGet(args, "date"))
+    comp = JsonGet(args, "competed", False)
+    prio = JsonGet(args, "priority", 5)
+    urge = JsonGet(args, "urgency", 5)
+#    dead = time.localtime(JsonGet(args, "deadline", None))
+    newItem = Item(name, tags, desc, date, comp, prio, urge)
+
+    return newItem
+
+
+  def __toJson(item):
+    data = {}
+    data["name"] = item.name
+    data["tags"] = item.tags
+    data["dscription"] = item.description
+    data["date"] = time.mktime(item.date)
+    data["completed"] = item.completed
+    data["priority"] = item.priority
+    data["urgency"] = item.urgency
+#    data["deadline"] = time.mktime(item.deadline)
+
+    return data
+
+
+  build = staticmethod(__fromJson)
+  write = staticmethod(__toJson)
+
+
+class List:
+
+  def __init__(self):
+    self._tags = []
+    self._items = []
+
+
+  def __iter__(self):
+    for it in self._items:
+      yield it
+
+  def __len__(self):
+    return len(self._items)
+
+
+  def load(self, data):
+    for item in data["items"]:
+      newItem = Item.build(item)
+      self._items.append(newItem)
+
+
+  def save(self):
+    data = {}
+    items = []
+    for item in self._items:
+      items.append(Item.write(item))
+    
+    data["items"] = items
+    return data
+
+
+  def insert(self, item):
+    self._items.append(item)
+
+
+  def delete(self, num):
+    pass
+
+
+class Manager:
+  def __init__(self):
+    self._data = {}
+    self._modified = False
+
+
+  def load(self, config):
+    print("LOAD", config)
+    for list_name, data in config.items():
+      l = List()
+      l.load(data)
+      self._data[list_name] = l
+
+
+  def save(self):
+    print("SAVE")
+    data = {}
+    for list_name, list_data in self._data.items():
+      data[list_name] = list_data.save()
+
+    return data
+
+
+  def show(self, args):
+    print("SHOW", args)
+    for list_name, data in self._data.items():
+      indent = "  "
+      print('{0}{1}'.format(indent, list_name))
+      indent = "    "
+      for num, item in enumerate(data) :
+        print("{0}{1}. {2}".format(indent, num, item.print_brief()))
+
+
+  def add(self, args):
+    print("ADD", args)
+    if args.list in self._data :
+#    new_item = Item(args.name, args.description, args.tags, time.gmtime(), comp=False, prio=args.priority, urg=args.urgency, deadline=args.deadline)
+      new_item = Item(args.name, args.description, args.tags, time.gmtime(), comp=False)
+      self._data[args.list].insert(new_item)
+      self._modified = True
+
+    else:
+      available = [ name for name in self._data ]
+      raise ValueError('List not found: {0}. Available lists: {1}'.format(args.list, available))
+
+
+  def delete(self, args):
+    print("DELETE", args)
+    self._modified = True
+
+
+  def update(self, args):
+    print("UPDATE", args)
+    self._modified = True
+
+
+  def tick(self, args):
+    print("TICK", args)
+    self._modified = True
+
+  def modified(self):
+    return self._modified
+
+
+if __name__ == "__main__" :
+
+  parser = argparse.ArgumentParser(description='Manages your todo list and offers ways of displaying and organising it.')
+
+  parser.add_argument('-f', '--file', type=pathlib.Path, help="Custom todo list to use", default=USER_FILE)
+
+  subparsers = parser.add_subparsers()
+
+  p_show = subparsers.add_parser('show', help='Display a subset or the entire todo list')
+  p_show.set_defaults(func=Manager.show)
+
+  p_add = subparsers.add_parser('add', help='Add an item to the todo list')
+  p_add.add_argument('list', type=str, help='The list to add the item to')
+  p_add.add_argument('name', type=str, help='Name of the todo list item')
+  p_add.add_argument('-t', '--tags', type=str, action='append', nargs='+', help='Tags to organize the items by') 
+  p_add.add_argument('-p', '--priority', choices=['1', '2', '3'], help='Priority of the task (1-3)')
+  p_add.add_argument('-u', '--urgency', choices=['1', '2', '3'], help='Urgency of the task (1-3)')
+  p_add.add_argument('description', type=str, nargs=argparse.REMAINDER, action=ActionConcatenate, help='Detailed description for the list item')
+  p_add.set_defaults(func=Manager.add)
+
+  p_delete = subparsers.add_parser('delete', help='Add an item to the todo list')
+  p_delete.set_defaults(func=Manager.delete)
+
+  p_update = subparsers.add_parser('update', help='Add an item to the todo list')
+  p_update.set_defaults(func=Manager.update)
+
+  namespace = parser.parse_args()
+
+  todo = Manager()
+
+  try:
+    if os.path.isfile(namespace.file):
+      with open(namespace.file) as f:
+        config = json.load(f)
+        todo.load(config)
+    else:
+      raise ValueError("Failed to find todo file: {}".format(namespace.file))
+  except ValueError as e:
+    print("Failed to load the todo file ({})".format(namespace.file))
+    print("Error:", e)
+    os._exit(1)
+
+  try:
+    namespace.func(todo, namespace)
+  except ValueError as e:
+    print("Failed:", e)
+    os._exit(1)
+
+#  try:
+  print("HERE", todo.modified())
+  if todo.modified() :
+    print("MODIFYING FILE")
+    tmp_file = str(namespace.file)+".tmp"
+    with open(tmp_file, 'w') as f:
+      data = todo.save()
+      print("DATA:", data)
+      json.dump(data, f)
+    os.remove(namespace.file)
+    os.rename(tmp_file, namespace.file)
+
+#  except ValueError as e:
+#    print("Failed to write file to file:", e)
+#    os._exit(1)
+
