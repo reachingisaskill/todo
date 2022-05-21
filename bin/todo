@@ -35,21 +35,33 @@ def JsonGet(data, name, default=None) :
     return default
 
 
+def Confirm(message) :
+  while True :
+    answer = input(message)
+    if answer == 'y' or answer == 'Y' :
+      return True
+    elif answer == 'n' or answer == 'N' :
+      return False
+    else :
+      print("Unexpected response.")
+
+
 class ActionConcatenate(argparse.Action):
   def __init__(self, option_strings, dest, **kwargs):
     super().__init__(option_strings, dest, **kwargs)
 
   def __call__(self, parser, namespace, values, option_string=None):
+    string = ""
     if len(values) > 0:
       string = values[0]
       for val in values[1:]:
         string = "{0} {1}".format(string, val)
-    print("STRING = {0} -- {1} {2}".format(string, values, option_string))
+    print("STRING = {0} -- {1}".format(string, values))
     setattr(namespace, self.dest, string)
 
 
 class Item:
-  def __init__(self, name, desc="", tags=[], date=time.gmtime(), comp=False, prio=5, urg=5, deadline=None):
+  def __init__(self, name, desc="", tags=[], date=time.gmtime(), comp=False, prio=1, urg=1, deadline=None):
     self.name = name
     self.description = desc
     self.tags = tags
@@ -61,8 +73,17 @@ class Item:
 
 
   def print_brief(self):
+    tag_string = self.__build_tag_string()
+    return "{0} {1}".format(self.name, tag_string)
+
+  def print_detail(self):
+    tag_string = self.__build_tag_string()
+    return "{0} <{1}x{2}> {3}\n{4}".format(self.name, self.priority, self.urgency, tag_string, self.description)
+
+
+  def __build_tag_string(self):
     tag_string = ""
-    if len(self.tags) > 0:
+    if not(self.tags is None) and len(self.tags) > 0:
       tag_string += "["
       for num, t in enumerate(self.tags):
         tag_string += format(t)
@@ -70,7 +91,8 @@ class Item:
             tag_string += ", "
       tag_string += "]"
 
-    return "{0} {1}".format(self.name, tag_string)
+    return tag_string
+
 
   def __fromJson(args):
     name = JsonGet(args, "name") 
@@ -78,8 +100,8 @@ class Item:
     tags = JsonGet(args, "tags", [])
     date = time.localtime(JsonGet(args, "date"))
     comp = JsonGet(args, "competed", False)
-    prio = JsonGet(args, "priority", 5)
-    urge = JsonGet(args, "urgency", 5)
+    prio = JsonGet(args, "priority", 1)
+    urge = JsonGet(args, "urgency", 1)
 #    dead = time.localtime(JsonGet(args, "deadline", None))
     newItem = Item(name, tags, desc, date, comp, prio, urge)
 
@@ -90,7 +112,7 @@ class Item:
     data = {}
     data["name"] = item.name
     data["tags"] = item.tags
-    data["dscription"] = item.description
+    data["description"] = item.description
     data["date"] = time.mktime(item.date)
     data["completed"] = item.completed
     data["priority"] = item.priority
@@ -117,6 +139,21 @@ class List:
 
   def __len__(self):
     return len(self._items)
+
+  def __getitem__(self, key):
+    return self._items[key]
+  
+  def __setitem__(self, key, val):
+    self._items[key] = val
+
+  def __delitem__(self, key):
+    del self._items[key]
+
+  def __contains__(self, key):
+    for it in self._items :
+      if it.name == key :
+        return True
+    return False
 
 
   def load(self, data):
@@ -173,12 +210,16 @@ class Manager:
       print('{0}{1}'.format(indent, list_name))
       indent = "    "
       for num, item in enumerate(data) :
-        print("{0}{1}. {2}".format(indent, num, item.print_brief()))
+        if args.verbose :
+          print("{0}{1}. {2}".format(indent, num, item.print_detail()))
+        else :
+          print("{0}{1}. {2}".format(indent, num, item.print_brief()))
 
 
   def add(self, args):
     print("ADD", args)
     if args.list in self._data :
+      print(args.description)
 #    new_item = Item(args.name, args.description, args.tags, time.gmtime(), comp=False, prio=args.priority, urg=args.urgency, deadline=args.deadline)
       new_item = Item(args.name, args.description, args.tags, time.gmtime(), comp=False)
       self._data[args.list].insert(new_item)
@@ -191,7 +232,19 @@ class Manager:
 
   def delete(self, args):
     print("DELETE", args)
-    self._modified = True
+    if args.list in self._data :
+      if args.name in self._data[args.list] :
+        if Confirm('Delete {0} (Y/N)'.format(args.name)) :
+          del self._data[args.list][args.name]
+          self._modified = True
+        else :
+          self._modeified = False
+
+      else :
+        print('Failed to find item {0}'.format(args.name))
+
+    else :
+      print('Failed to find list {0}'.format(args.list))
 
 
   def update(self, args):
@@ -203,8 +256,41 @@ class Manager:
     print("TICK", args)
     self._modified = True
 
+
+  def list(self, args):
+    print("LIST", args)
+    if args.name in self._data :
+      if args.delete :
+        if Confirm('Are you sure you want to delete the list: {0} (Y/N): '.format(args.name)) :
+          del self._data[args.name]
+          self._modified = True
+        else :
+          self._modified = False
+        return
+
+    elif not args.delete :
+      self._modified = True
+      self._data[args.name] = List()
+
+    else :
+      available = [ name for name in self._data ]
+      raise ValueError('List not found: {0}. Available lists: {1}'.format(args.name, available))
+
+
   def modified(self):
     return self._modified
+
+
+def save_todo(todo, file):
+  data = todo.save()
+  print("DATA:", data)
+  json.dump(data, file)
+
+
+def load_todo(file):
+  config = json.load(file)
+  todo.load(config)
+  return todo
 
 
 if __name__ == "__main__" :
@@ -212,10 +298,12 @@ if __name__ == "__main__" :
   parser = argparse.ArgumentParser(description='Manages your todo list and offers ways of displaying and organising it.')
 
   parser.add_argument('-f', '--file', type=pathlib.Path, help="Custom todo list to use", default=USER_FILE)
+#  parser.set_defaults(func=Manager.show) # By default we just run the default show command
 
   subparsers = parser.add_subparsers()
 
   p_show = subparsers.add_parser('show', help='Display a subset or the entire todo list')
+  p_show.add_argument('-v', '--verbose', action='store_true', default=False, help='Verbose. Show everything')
   p_show.set_defaults(func=Manager.show)
 
   p_add = subparsers.add_parser('add', help='Add an item to the todo list')
@@ -227,11 +315,18 @@ if __name__ == "__main__" :
   p_add.add_argument('description', type=str, nargs=argparse.REMAINDER, action=ActionConcatenate, help='Detailed description for the list item')
   p_add.set_defaults(func=Manager.add)
 
-  p_delete = subparsers.add_parser('delete', help='Add an item to the todo list')
+  p_delete = subparsers.add_parser('delete', help='Remove an item from the todo list')
+  p_delete.add_argument('list', type=str, help='The list to remove the item from')
+  p_delete.add_argument('name', type=str, help='The name of the list item to delete')
   p_delete.set_defaults(func=Manager.delete)
 
-  p_update = subparsers.add_parser('update', help='Add an item to the todo list')
+  p_update = subparsers.add_parser('update', help='Update an item in the todo list')
   p_update.set_defaults(func=Manager.update)
+
+  p_list = subparsers.add_parser('list', help='Add, edit or remove a list')
+  p_list.add_argument('name', nargs='?', help='Name of the list')
+  p_list.add_argument('-d', '--delete', action='store_true', help='Delete the named list')
+  p_list.set_defaults(func=Manager.list)
 
   namespace = parser.parse_args()
 
@@ -240,10 +335,12 @@ if __name__ == "__main__" :
   try:
     if os.path.isfile(namespace.file):
       with open(namespace.file) as f:
-        config = json.load(f)
-        todo.load(config)
+        load_todo(f)
     else:
-      raise ValueError("Failed to find todo file: {}".format(namespace.file))
+      print("Creating new todo file: {0}".format(namespace.file))
+      with open(namespace.file, 'w') as f:
+        save_todo(todo, f)
+#      raise ValueError("Failed to find todo file: {}".format(namespace.file))
   except ValueError as e:
     print("Failed to load the todo file ({})".format(namespace.file))
     print("Error:", e)
@@ -261,9 +358,7 @@ if __name__ == "__main__" :
     print("MODIFYING FILE")
     tmp_file = str(namespace.file)+".tmp"
     with open(tmp_file, 'w') as f:
-      data = todo.save()
-      print("DATA:", data)
-      json.dump(data, f)
+      save_todo(todo, f)
     os.remove(namespace.file)
     os.rename(tmp_file, namespace.file)
 
