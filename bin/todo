@@ -24,8 +24,15 @@ import os
 
 ## Global Configuration Variables
 USER_FILE = "$HOME/.todo"
+DEBUG = False
 
 ## Utility Functions
+def debug(*args) :
+  global DEBUG
+  if DEBUG :
+    print(args)
+
+
 def JsonGet(data, name, default=None) :
   if name in data :
     return data[name]
@@ -56,7 +63,7 @@ class ActionConcatenate(argparse.Action):
       string = values[0]
       for val in values[1:]:
         string = "{0} {1}".format(string, val)
-    print("STRING = {0} -- {1}".format(string, values))
+    debug("STRING = {0} -- {1}".format(string, values))
     setattr(namespace, self.dest, string)
 
 
@@ -187,7 +194,7 @@ class Manager:
 
 
   def load(self, config):
-    print("LOAD", config)
+    debug("LOAD", config)
     for list_name, data in config.items():
       l = List()
       l.load(data)
@@ -195,7 +202,7 @@ class Manager:
 
 
   def save(self):
-    print("SAVE")
+    debug("SAVE")
     data = {}
     for list_name, list_data in self._data.items():
       data[list_name] = list_data.save()
@@ -204,10 +211,10 @@ class Manager:
 
 
   def show(self, args):
-    print("SHOW", args)
+    debug("SHOW", args)
     for list_name, data in self._data.items():
       indent = "  "
-      print('{0}{1}'.format(indent, list_name))
+      debug('{0}{1}'.format(indent, list_name))
       indent = "    "
       for num, item in enumerate(data) :
         if args.verbose :
@@ -217,9 +224,9 @@ class Manager:
 
 
   def add(self, args):
-    print("ADD", args)
+    debug("ADD", args)
     if args.list in self._data :
-      print(args.description)
+      debug(args.description)
 #    new_item = Item(args.name, args.description, args.tags, time.gmtime(), comp=False, prio=args.priority, urg=args.urgency, deadline=args.deadline)
       new_item = Item(args.name, args.description, args.tags, time.gmtime(), comp=False)
       self._data[args.list].insert(new_item)
@@ -231,7 +238,7 @@ class Manager:
 
 
   def delete(self, args):
-    print("DELETE", args)
+    debug("DELETE", args)
     if args.list in self._data :
       if args.name in self._data[args.list] :
         if Confirm('Delete {0} (Y/N)'.format(args.name)) :
@@ -248,17 +255,17 @@ class Manager:
 
 
   def update(self, args):
-    print("UPDATE", args)
+    debug("UPDATE", args)
     self._modified = True
 
 
   def tick(self, args):
-    print("TICK", args)
+    debug("TICK", args)
     self._modified = True
 
 
   def list(self, args):
-    print("LIST", args)
+    debug("LIST", args)
     if args.name in self._data :
       if args.delete :
         if Confirm('Are you sure you want to delete the list: {0} (Y/N): '.format(args.name)) :
@@ -283,7 +290,7 @@ class Manager:
 
 def save_todo(todo, file):
   data = todo.save()
-  print("DATA:", data)
+  debug("DATA:", data)
   json.dump(data, file)
 
 
@@ -298,20 +305,21 @@ if __name__ == "__main__" :
   parser = argparse.ArgumentParser(description='Manages your todo list and offers ways of displaying and organising it.')
 
   parser.add_argument('-f', '--file', type=pathlib.Path, help="Custom todo list to use", default=USER_FILE)
+  parser.add_argument('-v', '--verbose', action='store_true', help='Prints excessive info to show you what\' going on')
 #  parser.set_defaults(func=Manager.show) # By default we just run the default show command
 
   subparsers = parser.add_subparsers()
 
   p_show = subparsers.add_parser('show', help='Display a subset or the entire todo list')
-  p_show.add_argument('-v', '--verbose', action='store_true', default=False, help='Verbose. Show everything')
+  p_show.add_argument('-a', '--all', action='store_true', default=False, help='All. Show everything')
   p_show.set_defaults(func=Manager.show)
 
   p_add = subparsers.add_parser('add', help='Add an item to the todo list')
   p_add.add_argument('list', type=str, help='The list to add the item to')
   p_add.add_argument('name', type=str, help='Name of the todo list item')
   p_add.add_argument('-t', '--tags', type=str, action='append', nargs='+', help='Tags to organize the items by') 
-  p_add.add_argument('-p', '--priority', choices=['1', '2', '3'], help='Priority of the task (1-3)')
-  p_add.add_argument('-u', '--urgency', choices=['1', '2', '3'], help='Urgency of the task (1-3)')
+  p_add.add_argument('-p', '--priority', choices=['1', '2', '3', '4', '5'], help='Priority of the task (1-5)')
+  p_add.add_argument('-u', '--urgency', choices=['1', '2', '3', '4', '5'], help='Urgency of the task (1-5)')
   p_add.add_argument('description', type=str, nargs=argparse.REMAINDER, action=ActionConcatenate, help='Detailed description for the list item')
   p_add.set_defaults(func=Manager.add)
 
@@ -330,6 +338,9 @@ if __name__ == "__main__" :
 
   namespace = parser.parse_args()
 
+  if namespace.verbose :
+    DEBUG = True
+
   todo = Manager()
 
   try:
@@ -337,7 +348,7 @@ if __name__ == "__main__" :
       with open(namespace.file) as f:
         load_todo(f)
     else:
-      print("Creating new todo file: {0}".format(namespace.file))
+      debug("Creating new todo file: {0}".format(namespace.file))
       with open(namespace.file, 'w') as f:
         save_todo(todo, f)
 #      raise ValueError("Failed to find todo file: {}".format(namespace.file))
@@ -353,9 +364,9 @@ if __name__ == "__main__" :
     os._exit(1)
 
 #  try:
-  print("HERE", todo.modified())
+  debug("HERE", todo.modified())
   if todo.modified() :
-    print("MODIFYING FILE")
+    debug("MODIFYING FILE")
     tmp_file = str(namespace.file)+".tmp"
     with open(tmp_file, 'w') as f:
       save_todo(todo, f)
